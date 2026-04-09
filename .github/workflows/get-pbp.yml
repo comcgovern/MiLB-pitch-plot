@@ -1,0 +1,70 @@
+name: 1 – Get Play-by-Play Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      game_date:
+        description: 'Date to look up games (YYYY-MM-DD)'
+        required: true
+        default: '2025-07-23'
+      game_pk:
+        description: 'Game ID (game_pk) to pull PBP data for'
+        required: true
+        default: '783714'
+      level_id:
+        description: 'League level ID (12 = AA, 11 = AAA, 14 = A+)'
+        required: true
+        default: '12'
+
+concurrency:
+  group: get-pbp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  get-pbp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-r-get-pbp-v1
+          restore-keys: ${{ runner.os }}-r-get-pbp-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libxml2-dev
+
+      - name: Install R packages
+        run: |
+          Rscript -e "
+            pkgs <- c('baseballr', 'tidyverse', 'openxlsx')
+            missing <- pkgs[!pkgs %in% rownames(installed.packages())]
+            if (length(missing)) install.packages(missing)
+          "
+
+      - name: Run get_pbp.R
+        env:
+          GAME_DATE: ${{ inputs.game_date }}
+          GAME_PK: ${{ inputs.game_pk }}
+          LEVEL_ID: ${{ inputs.level_id }}
+        run: Rscript .github/scripts/run_get_pbp.R
+
+      - name: Upload PBP data
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbp-data-game-${{ inputs.game_pk }}
+          path: my_data.xlsx
+          if-no-files-found: error

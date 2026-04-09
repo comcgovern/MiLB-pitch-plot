@@ -1,3 +1,6 @@
+# GitHub Actions runner replicating '3. batter_pitch_plot.R'
+# Parameters are read from environment variables; defaults match the original script.
+
 require(baseballr)
 require(tidyverse)
 require(ggplot2)
@@ -5,24 +8,19 @@ require(ggthemes)
 library(showtext)
 require(ragg)
 
-## Configuration -----------------------------------------------------------
-## Set mode to "game" for a single game or "season" for a full season
-mode      <- "season"   # "game" | "season"
-plot_type <- "scatter"  # "scatter" | "heatmap"
-#   scatter : individual pitch dots coloured by outcome (original)
-#   heatmap : coverage heatmap — red = good contact/takes, blue = weak zones
-game_pk   <- NULL       # Required when mode == "game"; e.g. 783714
-batter_id <- 698945     # Anderson de Los Santos (default)
-season    <- 2026       # Season year (used in season mode)
-level_id  <- c(12)      # 12 = AA; change for other levels
-
-## Heatmap tuning (ignored when plot_type == "scatter") --------------------
-bin_size <- 12   # pixel width/height of each heatmap cell
-min_n    <- 3    # minimum pitches in a bin before it is drawn
+## Configuration (env vars with original-script defaults) ------------------
+mode      <- Sys.getenv("MODE",      "season")   # "game" | "season"
+plot_type <- Sys.getenv("PLOT_TYPE", "scatter")  # "scatter" | "heatmap"
+game_pk   <- if (nchar(Sys.getenv("GAME_PK")) > 0) as.integer(Sys.getenv("GAME_PK")) else NULL
+batter_id <- as.integer(Sys.getenv("BATTER_ID", "698945"))
+season    <- as.integer(Sys.getenv("SEASON",    "2026"))
+level_id  <- as.integer(Sys.getenv("LEVEL_ID",  "12"))
+bin_size  <- as.integer(Sys.getenv("BIN_SIZE",  "12"))
+min_n     <- as.integer(Sys.getenv("MIN_N",     "3"))
 
 ## Pull data ---------------------------------------------------------------
 if (mode == "game") {
-  stopifnot("Set game_pk for single-game mode." = !is.null(game_pk))
+  stopifnot("Set GAME_PK env var for single-game mode." = !is.null(game_pk))
   raw_payload <- mlb_pbp(game_pk)
   batter_data <- raw_payload %>% filter(matchup.batter.id == batter_id)
 } else {
@@ -55,33 +53,27 @@ subtitle_label <- if (mode == "game") {
 ## Recode pitch outcomes ---------------------------------------------------
 batter_data <- batter_data %>%
   mutate(outcome = recode(details.code,
-                          "X" = "Ball in Play",
-                          "B" = "Ball",
-                          "F" = "Foul",
-                          "C" = "Called Strike",
-                          "S" = "Swinging Strike",
-                          "W" = "Swinging Strike",
+                          "X"  = "Ball in Play",
+                          "B"  = "Ball",
+                          "F"  = "Foul",
+                          "C"  = "Called Strike",
+                          "S"  = "Swinging Strike",
+                          "W"  = "Swinging Strike",
                           "*B" = "Ball",
-                          "E" = "Ball in Play",
-                          "L" = "Foul",
-                          "D" = "Ball in Play",
-                          "1" = "Ball",
+                          "E"  = "Ball in Play",
+                          "L"  = "Foul",
+                          "D"  = "Ball in Play",
+                          "1"  = "Ball",
                           .missing = "Ball"))
 
 ## Strike zone geometry ----------------------------------------------------
-topKzone <- -110
-botKzone <- -190
-inKzone  <- -60
-outKzone <- -140
+topKzone <- -110; botKzone <- -190; inKzone <- -60; outKzone <- -140
 kZone <- data.frame(
   x = c(inKzone, inKzone, outKzone, outKzone, inKzone),
   y = c(botKzone, topKzone, topKzone, botKzone, botKzone)
 )
 
-topshzone <- -100
-botshzone <- -200
-inshzone  <- -50
-outshzone <- -150
+topshzone <- -100; botshzone <- -200; inshzone <- -50; outshzone <- -150
 shzone <- data.frame(
   x = c(inshzone, inshzone, outshzone, outshzone, inshzone),
   y = c(botshzone, topshzone, topshzone, botshzone, botshzone)
@@ -128,7 +120,6 @@ zone_overlay <- list(
 
 if (plot_type == "heatmap") {
 
-  ## Coverage score: +1 = good outcome (BIP), 0 = neutral (Ball), -1 = bad
   heatmap_data <- batter_data %>%
     mutate(
       px = -1 * pitchData.coordinates.x,
@@ -136,7 +127,7 @@ if (plot_type == "heatmap") {
       coverage_score = case_when(
         outcome == "Ball in Play" ~  1,
         outcome == "Ball"         ~  0,
-        TRUE                      ~ -1   # Foul, Called Strike, Swinging Strike
+        TRUE                      ~ -1
       ),
       x_bin = round(px / bin_size) * bin_size,
       y_bin = round(py / bin_size) * bin_size
@@ -146,20 +137,14 @@ if (plot_type == "heatmap") {
     filter(n >= min_n)
 
   pitch_plot <- ggplot() +
-    geom_tile(
-      data  = heatmap_data,
-      aes(x = x_bin, y = y_bin, fill = score),
-      width = bin_size, height = bin_size
-    ) +
+    geom_tile(data = heatmap_data,
+              aes(x = x_bin, y = y_bin, fill = score),
+              width = bin_size, height = bin_size) +
     scale_fill_gradient2(
-      low      = "steelblue",
-      mid      = "white",
-      high     = "firebrick",
-      midpoint = 0,
-      limits   = c(-1, 1),
-      name     = "Coverage",
-      breaks   = c(-1, 0, 1),
-      labels   = c("Weak\n(strikes/fouls)", "Neutral\n(balls)", "Strong\n(in play/takes)")
+      low = "steelblue", mid = "white", high = "firebrick",
+      midpoint = 0, limits = c(-1, 1), name = "Coverage",
+      breaks = c(-1, 0, 1),
+      labels = c("Weak\n(strikes/fouls)", "Neutral\n(balls)", "Strong\n(in play/takes)")
     ) +
     facet_grid(.~factor(matchup.pitchHand.code, levels = c("R", "L")),
                labeller = as_labeller(pitchhand_names)) +
@@ -171,23 +156,17 @@ if (plot_type == "heatmap") {
   order <- c("Swinging Strike", "Called Strike", "Ball", "Foul", "Ball in Play")
 
   pitch_plot <- ggplot() +
-    geom_point(
-      size = 2.5, shape = 16,
-      data = batter_data,
-      aes(x = (-1 * pitchData.coordinates.x),
-          y = (-1 * pitchData.coordinates.y),
-          col = outcome)
-    ) +
+    geom_point(size = 2.5, shape = 16, data = batter_data,
+               aes(x = (-1 * pitchData.coordinates.x),
+                   y = (-1 * pitchData.coordinates.y),
+                   col = outcome)) +
     scale_color_manual(
       limits = order,
-      values = c(
-        "Called Strike"   = "firebrick",
-        "Swinging Strike" = "firebrick1",
-        "Ball"            = "steelblue",
-        "Foul"            = "grey60",
-        "Ball in Play"    = "grey5"
-      )
-    ) +
+      values = c("Called Strike"   = "firebrick",
+                 "Swinging Strike" = "firebrick1",
+                 "Ball"            = "steelblue",
+                 "Foul"            = "grey60",
+                 "Ball in Play"    = "grey5")) +
     facet_grid(.~factor(matchup.pitchHand.code, levels = c("R", "L")),
                labeller = as_labeller(pitchhand_names)) +
     coord_equal() +
@@ -196,19 +175,16 @@ if (plot_type == "heatmap") {
 }
 
 pitch_plot_output <- pitch_plot + theme_pitch() +
-  labs(
-    x = "", y = "",
-    title    = batter_name,
-    subtitle = subtitle_label,
-    caption  = "Created by Conor McGovern. Pitch locations are manually inputted by a stringer and should be approached with caution."
-  )
+  labs(x = "", y = "",
+       title    = batter_name,
+       subtitle = subtitle_label,
+       caption  = "Created by Conor McGovern. Pitch locations are manually inputted by a stringer and should be approached with caution.")
 
 print(pitch_plot_output)
 
-## Save PNG ----------------------------------------------------------------
-ragg::agg_png(
-  filename = str_c(batter_name, " - ", subtitle_label, ".png"),
-  width = 1600, height = 900, units = "px", res = 300, scaling = 0.67
-)
+ragg::agg_png(filename = str_c(batter_name, " - ", subtitle_label, ".png"),
+              width = 1600, height = 900, units = "px", res = 300, scaling = 0.67)
 pitch_plot_output
 dev.off()
+
+message("Saved: ", str_c(batter_name, " - ", subtitle_label, ".png"))
