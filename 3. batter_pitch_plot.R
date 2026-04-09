@@ -7,11 +7,18 @@ require(ragg)
 
 ## Configuration -----------------------------------------------------------
 ## Set mode to "game" for a single game or "season" for a full season
-mode      <- "season"  # "game" | "season"
-game_pk   <- NULL      # Required when mode == "game"; e.g. 783714
-batter_id <- 698945    # Anderson de Los Santos (default)
-season    <- 2026      # Season year (used in season mode)
-level_id  <- c(12)     # 12 = AA; change for other levels
+mode      <- "season"   # "game" | "season"
+plot_type <- "scatter"  # "scatter" | "heatmap"
+#   scatter : individual pitch dots coloured by outcome (original)
+#   heatmap : coverage heatmap — red = good contact/takes, blue = weak zones
+game_pk   <- NULL       # Required when mode == "game"; e.g. 783714
+batter_id <- 698945     # Anderson de Los Santos (default)
+season    <- 2026       # Season year (used in season mode)
+level_id  <- c(12)      # 12 = AA; change for other levels
+
+## Heatmap tuning (ignored when plot_type == "scatter") --------------------
+bin_size <- 12   # pixel width/height of each heatmap cell
+min_n    <- 3    # minimum pitches in a bin before it is drawn
 
 ## Pull data ---------------------------------------------------------------
 if (mode == "game") {
@@ -111,33 +118,81 @@ theme_pitch <- function() {
 
 ## Plot --------------------------------------------------------------------
 pitchhand_names <- c(`R` = "RHP", `L` = "LHP")
-order <- c("Swinging Strike", "Called Strike", "Ball", "Foul", "Ball in Play")
+zone_overlay <- list(
+  geom_path(aes(x, y), data = kZone,    linewidth = 1),
+  geom_path(aes(x, y), data = shzone,   linewidth = 1, linetype = "dashed"),
+  geom_path(aes(x, y), data = center_y, linewidth = 0.4),
+  geom_path(aes(x, y), data = center_x, linewidth = 0.4)
+)
 
-pitch_plot <- ggplot() +
-  geom_point(
-    size = 2.5, shape = 16,
-    data = batter_data,
-    aes(x = (-1 * pitchData.coordinates.x),
-        y = (-1 * pitchData.coordinates.y),
-        col = outcome)
-  ) +
-  scale_color_manual(
-    limits = order,
-    values = c(
-      "Called Strike"   = "firebrick",
-      "Swinging Strike" = "firebrick1",
-      "Ball"            = "steelblue",
-      "Foul"            = "grey60",
-      "Ball in Play"    = "grey5"
-    )
-  ) +
-  facet_grid(.~factor(matchup.pitchHand.code, levels = c("R", "L")),
-             labeller = as_labeller(pitchhand_names)) +
-  coord_equal() +
-  geom_path(aes(x, y), data = kZone,  linewidth = 1, fill = "azure2") +
-  geom_path(aes(x, y), data = shzone, linewidth = 1, fill = "azure3") +
-  geom_path(aes(x, y), data = center_y) +
-  geom_path(aes(x, y), data = center_x)
+if (plot_type == "heatmap") {
+
+  ## Coverage score: +1 = good outcome (BIP), 0 = neutral (Ball), -1 = bad
+  heatmap_data <- batter_data %>%
+    mutate(
+      px = -1 * pitchData.coordinates.x,
+      py = -1 * pitchData.coordinates.y,
+      coverage_score = case_when(
+        outcome == "Ball in Play" ~  1,
+        outcome == "Ball"         ~  0,
+        TRUE                      ~ -1   # Foul, Called Strike, Swinging Strike
+      ),
+      x_bin = round(px / bin_size) * bin_size,
+      y_bin = round(py / bin_size) * bin_size
+    ) %>%
+    group_by(matchup.pitchHand.code, x_bin, y_bin) %>%
+    summarise(score = mean(coverage_score), n = n(), .groups = "drop") %>%
+    filter(n >= min_n)
+
+  pitch_plot <- ggplot() +
+    geom_tile(
+      data  = heatmap_data,
+      aes(x = x_bin, y = y_bin, fill = score),
+      width = bin_size, height = bin_size
+    ) +
+    scale_fill_gradient2(
+      low      = "steelblue",
+      mid      = "white",
+      high     = "firebrick",
+      midpoint = 0,
+      limits   = c(-1, 1),
+      name     = "Coverage",
+      breaks   = c(-1, 0, 1),
+      labels   = c("Weak\n(strikes/fouls)", "Neutral\n(balls)", "Strong\n(in play/takes)")
+    ) +
+    facet_grid(.~factor(matchup.pitchHand.code, levels = c("R", "L")),
+               labeller = as_labeller(pitchhand_names)) +
+    coord_equal() +
+    zone_overlay
+
+} else {
+
+  order <- c("Swinging Strike", "Called Strike", "Ball", "Foul", "Ball in Play")
+
+  pitch_plot <- ggplot() +
+    geom_point(
+      size = 2.5, shape = 16,
+      data = batter_data,
+      aes(x = (-1 * pitchData.coordinates.x),
+          y = (-1 * pitchData.coordinates.y),
+          col = outcome)
+    ) +
+    scale_color_manual(
+      limits = order,
+      values = c(
+        "Called Strike"   = "firebrick",
+        "Swinging Strike" = "firebrick1",
+        "Ball"            = "steelblue",
+        "Foul"            = "grey60",
+        "Ball in Play"    = "grey5"
+      )
+    ) +
+    facet_grid(.~factor(matchup.pitchHand.code, levels = c("R", "L")),
+               labeller = as_labeller(pitchhand_names)) +
+    coord_equal() +
+    zone_overlay
+
+}
 
 pitch_plot_output <- pitch_plot + theme_pitch() +
   labs(
