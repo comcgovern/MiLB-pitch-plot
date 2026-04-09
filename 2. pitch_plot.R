@@ -25,6 +25,12 @@ pitcher_data <- pitcher_data %>%
                           "1" = "Ball",
                           .missing = "Ball"))
 
+## CSW (Called Strike + Whiff) percentage
+csw_pct <- round(
+  sum(pitcher_data$outcome %in% c("Called Strike", "Swinging Strike")) / nrow(pitcher_data) * 100,
+  1
+)
+
 ## Still messing with this, but plotting strike zone
 ## I think there's a 10 unit "shadow zone" based on the Gameday plot
 
@@ -106,7 +112,7 @@ pitch_plot <- ggplot() +
 pitch_plot_output <- pitch_plot + theme_pitch() +
   labs(x="",y="") + 
   labs(title = pitcher_name) +
-  labs(subtitle = str_c(team_name,", ",game_date)) + 
+  labs(subtitle = str_c(team_name, ", ", game_date, "  |  CSW: ", csw_pct, "%")) +
   labs(caption="Created by Conor McGovern. Pitch locations are manually inputted by a stringer and should be approached with caution.")
 
 print(pitch_plot_output)
