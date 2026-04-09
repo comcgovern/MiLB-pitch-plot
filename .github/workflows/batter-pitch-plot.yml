@@ -51,8 +51,8 @@ concurrency:
 jobs:
   batter-pitch-plot:
     runs-on: ubuntu-latest
-    # Season mode fetches PBP for every game in the schedule; allow up to 2 hours.
-    timeout-minutes: 120
+    # Season mode fetches PBP only for games the batter appeared in (~100 games).
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4

@@ -24,10 +24,12 @@ if (mode == "game") {
   raw_payload <- mlb_pbp(game_pk)
   batter_data <- raw_payload %>% filter(matchup.batter.id == batter_id)
 } else {
-  message("Fetching ", season, " schedule (level ", level_id, ")...")
-  schedule <- mlb_schedule(season = season, level_ids = level_id)
-  game_pks <- unique(schedule$game_pk)
-  message(length(game_pks), " games found. Pulling PBP (this may take a while)...")
+  # Fetch only the games this batter appeared in (via their game log),
+  # rather than pulling PBP for every game in the league schedule.
+  message("Fetching game log for batter ", batter_id, " (", season, " season)...")
+  game_log <- mlb_game_logs(player_id = batter_id, game_type = "R", season = season)
+  game_pks <- unique(game_log$game_pk)
+  message(length(game_pks), " games found in batter's game log. Pulling PBP...")
 
   batter_data <- map_dfr(seq_along(game_pks), function(i) {
     pk <- game_pks[i]
