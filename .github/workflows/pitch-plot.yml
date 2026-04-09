@@ -1,0 +1,69 @@
+name: 2 – Pitcher Pitch Plot
+
+on:
+  workflow_dispatch:
+    inputs:
+      game_pk:
+        description: 'Game ID (game_pk)'
+        required: true
+        default: '783714'
+      pitcher_id:
+        description: 'Pitcher ID (matchup.pitcher.id)'
+        required: true
+        default: '690999'
+
+concurrency:
+  group: pitch-plot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pitch-plot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-r-pitch-plot-v1
+          restore-keys: ${{ runner.os }}-r-pitch-plot-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libxml2-dev \
+            libharfbuzz-dev \
+            libfribidi-dev \
+            libfreetype6-dev \
+            libpng-dev
+
+      - name: Install R packages
+        run: |
+          Rscript -e "
+            pkgs <- c('baseballr', 'tidyverse', 'ggplot2', 'ggthemes', 'showtext', 'ragg')
+            missing <- pkgs[!pkgs %in% rownames(installed.packages())]
+            if (length(missing)) install.packages(missing)
+          "
+
+      - name: Run pitch_plot.R
+        env:
+          GAME_PK: ${{ inputs.game_pk }}
+          PITCHER_ID: ${{ inputs.pitcher_id }}
+        run: Rscript .github/scripts/run_pitch_plot.R
+
+      - name: Upload pitch plot PNG
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitch-plot-pitcher-${{ inputs.pitcher_id }}-game-${{ inputs.game_pk }}
+          path: "*.png"
+          if-no-files-found: error

@@ -1,0 +1,108 @@
+name: 3 – Batter Pitch Plot
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Data scope: "game" (single game) or "season" (full season)'
+        required: true
+        default: 'season'
+        type: choice
+        options:
+          - season
+          - game
+      plot_type:
+        description: 'Plot style: "scatter" (pitch dots) or "heatmap" (coverage zones)'
+        required: true
+        default: 'scatter'
+        type: choice
+        options:
+          - scatter
+          - heatmap
+      batter_id:
+        description: 'Batter ID (matchup.batter.id)'
+        required: true
+        default: '698945'
+      season:
+        description: 'Season year (used in season mode)'
+        required: true
+        default: '2026'
+      level_id:
+        description: 'League level ID (12 = AA, 11 = AAA, 14 = A+)'
+        required: true
+        default: '12'
+      game_pk:
+        description: 'Game ID – required when mode is "game", ignored otherwise'
+        required: false
+        default: ''
+      bin_size:
+        description: 'Heatmap bin size in pixels (heatmap mode only)'
+        required: false
+        default: '12'
+      min_n:
+        description: 'Minimum pitches per heatmap bin (heatmap mode only)'
+        required: false
+        default: '3'
+
+concurrency:
+  group: batter-pitch-plot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  batter-pitch-plot:
+    runs-on: ubuntu-latest
+    # Season mode fetches PBP for every game in the schedule; allow up to 2 hours.
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-r-batter-plot-v1
+          restore-keys: ${{ runner.os }}-r-batter-plot-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libxml2-dev \
+            libharfbuzz-dev \
+            libfribidi-dev \
+            libfreetype6-dev \
+            libpng-dev
+
+      - name: Install R packages
+        run: |
+          Rscript -e "
+            pkgs <- c('baseballr', 'tidyverse', 'ggplot2', 'ggthemes', 'showtext', 'ragg')
+            missing <- pkgs[!pkgs %in% rownames(installed.packages())]
+            if (length(missing)) install.packages(missing)
+          "
+
+      - name: Run batter_pitch_plot.R
+        env:
+          MODE: ${{ inputs.mode }}
+          PLOT_TYPE: ${{ inputs.plot_type }}
+          BATTER_ID: ${{ inputs.batter_id }}
+          SEASON: ${{ inputs.season }}
+          LEVEL_ID: ${{ inputs.level_id }}
+          GAME_PK: ${{ inputs.game_pk }}
+          BIN_SIZE: ${{ inputs.bin_size }}
+          MIN_N: ${{ inputs.min_n }}
+        run: Rscript .github/scripts/run_batter_pitch_plot.R
+
+      - name: Upload batter pitch plot PNG
+        uses: actions/upload-artifact@v4
+        with:
+          name: batter-plot-${{ inputs.batter_id }}-${{ inputs.mode }}-${{ inputs.plot_type }}
+          path: "*.png"
+          if-no-files-found: error
