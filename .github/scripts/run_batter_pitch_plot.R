@@ -27,8 +27,13 @@ if (mode == "game") {
   # Fetch only the games this batter appeared in (via their game log),
   # rather than pulling PBP for every game in the league schedule.
   message("Fetching game log for batter ", batter_id, " (", season, " season)...")
-  game_log <- mlb_game_logs(player_id = batter_id, game_type = "R", season = season)
-  game_pks <- unique(game_log$game_pk)
+  game_log_url <- paste0(
+    "https://statsapi.mlb.com/api/v1/people/", batter_id,
+    "/stats?stats=gameLog&season=", season,
+    "&group=hitting&gameType=R"
+  )
+  game_log_raw <- jsonlite::fromJSON(game_log_url)
+  game_pks <- unique(game_log_raw$stats$splits[[1]]$game$gamePk)
   message(length(game_pks), " games found in batter's game log. Pulling PBP...")
 
   batter_data <- map_dfr(seq_along(game_pks), function(i) {
@@ -88,13 +93,12 @@ font_add_google("Racing Sans One", "racing")
 showtext_auto()
 
 theme_pitch <- function() {
-  theme_minimal() +
+  theme_minimal(base_family = "Ubuntu") +
     theme(
       plot.background  = element_rect(fill = "azure",  color = NA),
       panel.background = element_rect(fill = "azure2", color = NA),
       plot.title    = element_text(hjust = 0.5, face = "bold", size = 24),
       plot.subtitle = element_text(hjust = 0.5, size = 18),
-      (base_family = "Ubuntu"),
       axis.title    = element_text(face = "bold", family = "racing"),
       axis.text.x   = element_blank(),
       axis.text.y   = element_blank(),
@@ -105,7 +109,7 @@ theme_pitch <- function() {
       legend.text      = element_text(size = 14),
       strip.background = element_rect(fill = "azure3", color = NA),
       strip.text.x     = element_text(face = "bold", size = 18),
-      caption.text     = element_text(size = 12)
+      plot.caption     = element_text(size = 12)
     )
 }
 
