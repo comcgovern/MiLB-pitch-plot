@@ -28,9 +28,16 @@ if (mode == "game") {
 } else {
   # Fetch only the games this batter appeared in (via their game log),
   # rather than pulling PBP for every game in the league schedule.
+  # sportId must match the level (12 = AA, 11 = AAA, 13 = A+, 14 = A) so the
+  # API returns MiLB games; without it the endpoint returns MLB data only.
   message("Fetching game log for batter ", batter_id, " (", season, " season)...")
-  game_log <- mlb_game_logs(player_id = batter_id, game_type = "R", season = season)
-  game_pks <- unique(game_log$game_pk)
+  game_log_url <- paste0(
+    "https://statsapi.mlb.com/api/v1/people/", batter_id,
+    "/stats?stats=gameLog&season=", season,
+    "&group=hitting&gameType=R&sportId=", paste(level_id, collapse = ",")
+  )
+  game_log_raw <- jsonlite::fromJSON(game_log_url)
+  game_pks <- unique(game_log_raw$stats$splits[[1]]$game$gamePk)
   message(length(game_pks), " games found in batter's game log. Pulling PBP...")
 
   batter_data <- map_dfr(seq_along(game_pks), function(i) {

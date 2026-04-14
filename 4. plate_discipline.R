@@ -9,6 +9,7 @@ game_pk    <- NULL          # Required when mode == "game"; e.g. 783714
 start_date <- "2025-07-01"  # Required when mode == "dates" (YYYY-MM-DD)
 end_date   <- "2025-07-31"  # Required when mode == "dates" (YYYY-MM-DD)
 season     <- 2025          # Required when mode == "dates"
+level_id   <- c(12)         # 12 = AA, 11 = AAA, 13 = A+, 14 = A (used as sportId)
 
 ## Pull data -------------------------------------------------------------------
 if (mode == "game") {
@@ -21,10 +22,12 @@ if (mode == "game") {
     "Set end_date for dates mode."   = !is.null(end_date)
   )
   message("Fetching game log for batter ", batter_id, " (", season, " season)...")
+  # sportId must match the level (12 = AA, 11 = AAA, 13 = A+, 14 = A) so the
+  # API returns MiLB games; without it the endpoint returns MLB data only.
   game_log_url <- paste0(
     "https://statsapi.mlb.com/api/v1/people/", batter_id,
     "/stats?stats=gameLog&season=", season,
-    "&group=hitting&gameType=R"
+    "&group=hitting&gameType=R&sportId=", paste(level_id, collapse = ",")
   )
   game_log_raw <- jsonlite::fromJSON(game_log_url)
   game_pks <- unique(game_log_raw$stats$splits[[1]]$game$gamePk)

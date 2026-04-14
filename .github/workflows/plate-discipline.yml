@@ -31,6 +31,10 @@ on:
         description: 'Season year – required when mode is "dates"'
         required: false
         default: '2025'
+      level_id:
+        description: 'League level ID (12 = AA, 11 = AAA, 13 = A+, 14 = A) – required when mode is "dates"'
+        required: false
+        default: '12'
 
 concurrency:
   group: plate-discipline-${{ github.ref }}
@@ -79,6 +83,7 @@ jobs:
           START_DATE: ${{ inputs.start_date }}
           END_DATE:   ${{ inputs.end_date }}
           SEASON:     ${{ inputs.season }}
+          LEVEL_ID:   ${{ inputs.level_id }}
         run: Rscript .github/scripts/run_plate_discipline.R
 
       - name: Upload plate discipline CSV
