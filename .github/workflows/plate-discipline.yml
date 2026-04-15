@@ -86,9 +86,9 @@ jobs:
           LEVEL_ID:   ${{ inputs.level_id }}
         run: Rscript .github/scripts/run_plate_discipline.R
 
-      - name: Upload plate discipline CSV
+      - name: Upload plate discipline markdown
         uses: actions/upload-artifact@v4
         with:
           name: plate-discipline-${{ inputs.batter_id }}-${{ inputs.mode }}
-          path: "*.csv"
+          path: "*.md"
           if-no-files-found: error

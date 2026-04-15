@@ -159,25 +159,36 @@ cat("=================================================================\n")
 cat("Note: Pitch locations are manually inputted by a stringer and\n")
 cat("      should be approached with caution.\n\n")
 
-## Write CSV -------------------------------------------------------------------
-metrics <- tibble(
-  batter              = batter_name,
-  team                = team_name,
-  scope               = date_label,
-  total_pitches       = total_pit,
-  zone_pitches        = nrow(z_pit),
-  out_zone_pitches    = nrow(o_pit),
-  shadow_pitches      = nrow(sh_pit),
-  swing_pct           = swing_pct,
-  contact_pct         = contact_pct,
-  z_swing_pct         = z_swing_pct,
-  z_contact_pct       = z_contact_pct,
-  o_swing_pct         = o_swing_pct,
-  o_contact_pct       = o_contact_pct,
-  shadow_swing_pct    = shadow_swing_pct,
-  shadow_contact_pct  = shadow_contact_pct
+## Write markdown -------------------------------------------------------------
+md_lines <- c(
+  paste0("# Plate Discipline: ", batter_name),
+  paste0("**", team_name, " | ", date_label, "**"),
+  "",
+  "## Pitch Counts",
+  "",
+  "| Zone | Pitches |",
+  "|------|---------|",
+  paste0("| Total (with coords) | ", total_pit, " |"),
+  paste0("| In-zone | ", nrow(z_pit), " |"),
+  paste0("| Out-of-zone (incl. shadow) | ", nrow(o_pit), " |"),
+  paste0("| Shadow zone (subset of out-of-zone) | ", nrow(sh_pit), " |"),
+  "",
+  "## Plate Discipline Metrics",
+  "",
+  "| Metric | Rate | Breakdown |",
+  "|--------|------|-----------|",
+  paste0("| Swing% | ",           fmt(swing_pct),          " | ", nrow(all_sw),         "/", total_pit,      " pitches |"),
+  paste0("| Contact% | ",         fmt(contact_pct),        " | ", sum(all_sw$contact),  "/", nrow(all_sw),   " swings |"),
+  paste0("| Z-Swing% | ",         fmt(z_swing_pct),        " | ", nrow(z_sw),            "/", nrow(z_pit),   " in-zone pitches |"),
+  paste0("| Z-Contact% | ",       fmt(z_contact_pct),      " | ", sum(z_sw$contact),    "/", nrow(z_sw),     " in-zone swings |"),
+  paste0("| O-Swing% | ",         fmt(o_swing_pct),        " | ", nrow(o_sw),            "/", nrow(o_pit),   " out-of-zone pitches |"),
+  paste0("| O-Contact% | ",       fmt(o_contact_pct),      " | ", sum(o_sw$contact),    "/", nrow(o_sw),     " out-of-zone swings |"),
+  paste0("| Shadow-Swing% | ",    fmt(shadow_swing_pct),   " | ", nrow(sh_sw),           "/", nrow(sh_pit),  " shadow pitches |"),
+  paste0("| Shadow-Contact% | ",  fmt(shadow_contact_pct), " | ", sum(sh_sw$contact),   "/", nrow(sh_sw),    " shadow swings |"),
+  "",
+  "> **Note:** Pitch locations are manually inputted by a stringer and should be approached with caution."
 )
 
-csv_filename <- str_c(batter_name, " - ", date_label, " - plate_discipline.csv")
-write_csv(metrics, csv_filename)
-message("Saved: ", csv_filename)
+md_filename <- str_c(batter_name, " - ", date_label, " - plate_discipline.md")
+writeLines(md_lines, md_filename)
+message("Saved: ", md_filename)
