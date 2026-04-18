@@ -298,9 +298,9 @@ pitch_plot_output <- pitch_plot + theme_pitch() +
 
 print(pitch_plot_output)
 
-ragg::agg_png(filename = str_c(batter_name, " - ", subtitle_label, ".png"),
+ragg::agg_png(filename = str_c(batter_name, " - ", gsub(" | ", " - ", subtitle_label, fixed = TRUE), ".png"),
               width = 1600, height = 900, units = "px", res = 300, scaling = 0.67)
 pitch_plot_output
 dev.off()
 
-message("Saved: ", str_c(batter_name, " - ", subtitle_label, ".png"))
+message("Saved: ", str_c(batter_name, " - ", gsub(" | ", " - ", subtitle_label, fixed = TRUE), ".png"))
