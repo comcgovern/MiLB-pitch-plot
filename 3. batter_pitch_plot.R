@@ -60,9 +60,9 @@ team_name      <- first(batter_data$batting_team)
 bat_sides      <- unique(na.omit(batter_data$matchup.batSide.code))
 bat_side_label <- if (length(bat_sides) > 1) "Switch" else if ("L" %in% bat_sides) "LHB" else "RHB"
 subtitle_label <- if (mode == "game") {
-  str_c(team_name, ", ", first(batter_data$game_date), " | ", bat_side_label)
+  str_c(team_name, ", ", first(batter_data$game_date), ", ", bat_side_label)
 } else {
-  str_c(team_name, ", ", season, " Season | ", bat_side_label)
+  str_c(team_name, ", ", season, " Season, ", bat_side_label)
 }
 
 ## Recode pitch outcomes ---------------------------------------------------
