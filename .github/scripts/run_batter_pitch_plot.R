@@ -22,7 +22,7 @@ level_id  <- as.integer(Sys.getenv("LEVEL_ID",  "12"))
 grid_step   <- as.integer(Sys.getenv("GRID_STEP",   "2"))
 gam_k       <- as.integer(Sys.getenv("GAM_K",       "30"))
 rv_limit    <- as.numeric(Sys.getenv("RV_LIMIT",    "0.08"))
-min_facet_n <- as.integer(Sys.getenv("MIN_FACET_N", "50"))
+min_facet_n <- as.integer(Sys.getenv("MIN_FACET_N", "25"))
 
 ## Pull data ---------------------------------------------------------------
 ## league_data keeps every pitch in the fetched games (all batters) so we can
@@ -57,10 +57,12 @@ batter_data <- league_data %>% filter(matchup.batter.id == batter_id)
 ## Metadata ----------------------------------------------------------------
 batter_name    <- first(batter_data$matchup.batter.fullName)
 team_name      <- first(batter_data$batting_team)
+bat_sides      <- unique(na.omit(batter_data$matchup.batSide.code))
+bat_side_label <- if (length(bat_sides) > 1) "Switch" else if ("L" %in% bat_sides) "LHB" else "RHB"
 subtitle_label <- if (mode == "game") {
-  str_c(team_name, ", ", first(batter_data$game_date))
+  str_c(team_name, ", ", first(batter_data$game_date), " | ", bat_side_label)
 } else {
-  str_c(team_name, ", ", season, " Season")
+  str_c(team_name, ", ", season, " Season | ", bat_side_label)
 }
 
 ## Recode pitch outcomes ---------------------------------------------------
