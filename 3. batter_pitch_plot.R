@@ -323,8 +323,16 @@ pitch_plot_output <- pitch_plot + theme_pitch() +
 print(pitch_plot_output)
 
 ## Save PNG ----------------------------------------------------------------
+# Create filename with underscore separators instead of pipes/commas
+filename <- str_c(
+  batter_name, "_",
+  team_name, "_",
+  season, "_",
+  bat_side_label,
+  ".png"
+)
 ragg::agg_png(
-  filename = str_c(batter_name, " - ", subtitle_label, ".png"),
+  filename = filename,
   width = 1600, height = 900, units = "px", res = 300, scaling = 0.67
 )
 pitch_plot_output
