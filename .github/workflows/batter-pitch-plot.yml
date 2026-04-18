@@ -35,14 +35,10 @@ on:
         description: 'Game ID – required when mode is "game", ignored otherwise'
         required: false
         default: ''
-      bin_size:
-        description: 'Heatmap bin size in pixels (heatmap mode only)'
+      rv_limit:
+        description: 'Heatmap colour saturation in runs/pitch (heatmap mode only)'
         required: false
-        default: '12'
-      min_n:
-        description: 'Minimum pitches per heatmap bin (heatmap mode only)'
-        required: false
-        default: '3'
+        default: '0.08'
 
 concurrency:
   group: batter-pitch-plot-${{ github.ref }}
@@ -96,8 +92,7 @@ jobs:
           SEASON: ${{ inputs.season }}
           LEVEL_ID: ${{ inputs.level_id }}
           GAME_PK: ${{ inputs.game_pk }}
-          BIN_SIZE: ${{ inputs.bin_size }}
-          MIN_N: ${{ inputs.min_n }}
+          RV_LIMIT: ${{ inputs.rv_limit }}
         run: Rscript .github/scripts/run_batter_pitch_plot.R
 
       - name: Upload batter pitch plot PNG
