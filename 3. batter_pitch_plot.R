@@ -135,7 +135,14 @@ theme_pitch <- function() {
 }
 
 ## Plot --------------------------------------------------------------------
-pitchhand_names <- c(`R` = "RHP", `L` = "LHP")
+make_hand_labels <- function(df) {
+  n <- df %>% filter(matchup.pitchHand.code %in% c("R", "L")) %>%
+    count(matchup.pitchHand.code) %>% deframe()
+  c(
+    `R` = paste0("RHP (n=", if ("R" %in% names(n)) n["R"] else 0L, ")"),
+    `L` = paste0("LHP (n=", if ("L" %in% names(n)) n["L"] else 0L, ")")
+  )
+}
 zone_overlay <- list(
   geom_path(aes(x, y), data = kZone,    linewidth = 1),
   geom_path(aes(x, y), data = shzone,   linewidth = 1, linetype = "dashed"),
@@ -199,6 +206,7 @@ if (plot_type == "heatmap") {
 
   batter_rv <- add_run_value(batter_data)
   league_rv <- add_run_value(league_data)
+  pitchhand_names <- make_hand_labels(batter_rv)
 
   ## Prediction grid (covers the shadow zone and a bit beyond) -------------
   x_seq <- seq(-180, -20,  by = grid_step)
@@ -276,6 +284,7 @@ if (plot_type == "heatmap") {
 
 } else {
 
+  pitchhand_names <- make_hand_labels(batter_data)
   order <- c("Swinging Strike", "Called Strike", "Ball", "Foul", "Ball in Play")
 
   pitch_plot <- ggplot() +
