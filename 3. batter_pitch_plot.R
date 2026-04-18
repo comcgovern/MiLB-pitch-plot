@@ -4,27 +4,32 @@ require(ggplot2)
 require(ggthemes)
 library(showtext)
 require(ragg)
+require(mgcv)
+# MASS::kde2d is called with its namespace qualifier to avoid masking dplyr::select.
 
 ## Configuration -----------------------------------------------------------
 ## Set mode to "game" for a single game or "season" for a full season
 mode      <- "season"   # "game" | "season"
 plot_type <- "scatter"  # "scatter" | "heatmap"
 #   scatter : individual pitch dots coloured by outcome (original)
-#   heatmap : coverage heatmap — red = good contact/takes, blue = weak zones
+#   heatmap : smoothed run-value heatmap vs league (red = above avg, blue = below)
 game_pk   <- NULL       # Required when mode == "game"; e.g. 783714
 batter_id <- 698945     # Anderson de Los Santos (default)
 season    <- 2026       # Season year (used in season mode)
 level_id  <- c(12)      # 12 = AA; change for other levels
 
 ## Heatmap tuning (ignored when plot_type == "scatter") --------------------
-bin_size <- 12   # pixel width/height of each heatmap cell
-min_n    <- 3    # minimum pitches in a bin before it is drawn
+grid_step   <- 2     # pixel step of the prediction grid
+gam_k       <- 30    # basis dimension for the 2D smooth
+rv_limit    <- 0.08  # |runs/pitch| at which the colour scale saturates
+min_facet_n <- 50    # skip a pitcher-hand facet with fewer pitches than this
 
 ## Pull data ---------------------------------------------------------------
+## league_data keeps every pitch in the fetched games (all batters) so we can
+## fit a league baseline surface; batter_data is the subset for this batter.
 if (mode == "game") {
   stopifnot("Set game_pk for single-game mode." = !is.null(game_pk))
-  raw_payload <- mlb_pbp(game_pk)
-  batter_data <- raw_payload %>% filter(matchup.batter.id == batter_id)
+  league_data <- mlb_pbp(game_pk)
 } else {
   # Fetch only the games this batter appeared in (via their game log),
   # rather than pulling PBP for every game in the league schedule.
@@ -40,15 +45,14 @@ if (mode == "game") {
   game_pks <- unique(game_log_raw$stats$splits[[1]]$game$gamePk)
   message(length(game_pks), " games found in batter's game log. Pulling PBP...")
 
-  batter_data <- map_dfr(seq_along(game_pks), function(i) {
+  league_data <- map_dfr(seq_along(game_pks), function(i) {
     pk <- game_pks[i]
     message(sprintf("  [%d/%d] game_pk %d", i, length(game_pks), pk))
-    tryCatch({
-      pbp <- mlb_pbp(pk)
-      pbp %>% filter(matchup.batter.id == batter_id)
-    }, error = function(e) tibble())
+    tryCatch(mlb_pbp(pk), error = function(e) tibble())
   })
 }
+
+batter_data <- league_data %>% filter(matchup.batter.id == batter_id)
 
 ## Metadata ----------------------------------------------------------------
 batter_name    <- first(batter_data$matchup.batter.fullName)
@@ -60,20 +64,24 @@ subtitle_label <- if (mode == "game") {
 }
 
 ## Recode pitch outcomes ---------------------------------------------------
-batter_data <- batter_data %>%
-  mutate(outcome = recode(details.code,
-                          "X" = "Ball in Play",
-                          "B" = "Ball",
-                          "F" = "Foul",
-                          "C" = "Called Strike",
-                          "S" = "Swinging Strike",
-                          "W" = "Swinging Strike",
-                          "*B" = "Ball",
-                          "E" = "Ball in Play",
-                          "L" = "Foul",
-                          "D" = "Ball in Play",
-                          "1" = "Ball",
-                          .missing = "Ball"))
+recode_outcome <- function(df) {
+  df %>%
+    mutate(outcome = recode(details.code,
+                            "X" = "Ball in Play",
+                            "B" = "Ball",
+                            "F" = "Foul",
+                            "C" = "Called Strike",
+                            "S" = "Swinging Strike",
+                            "W" = "Swinging Strike",
+                            "*B" = "Ball",
+                            "E" = "Ball in Play",
+                            "L" = "Foul",
+                            "D" = "Ball in Play",
+                            "1" = "Ball",
+                            .missing = "Ball"))
+}
+batter_data <- recode_outcome(batter_data)
+league_data <- recode_outcome(league_data)
 
 ## Strike zone geometry ----------------------------------------------------
 topKzone <- -110
@@ -135,42 +143,133 @@ zone_overlay <- list(
 
 if (plot_type == "heatmap") {
 
-  ## Coverage score: +1 = good outcome (BIP), 0 = neutral (Ball), -1 = bad
-  heatmap_data <- batter_data %>%
-    mutate(
-      px = -1 * pitchData.coordinates.x,
-      py = -1 * pitchData.coordinates.y,
-      coverage_score = case_when(
-        outcome == "Ball in Play" ~  1,
-        outcome == "Ball"         ~  0,
-        TRUE                      ~ -1   # Foul, Called Strike, Swinging Strike
-      ),
-      x_bin = round(px / bin_size) * bin_size,
-      y_bin = round(py / bin_size) * bin_size
-    ) %>%
-    group_by(matchup.pitchHand.code, x_bin, y_bin) %>%
-    summarise(score = mean(coverage_score), n = n(), .groups = "drop") %>%
-    filter(n >= min_n)
+  ## Per-pitch run value ---------------------------------------------------
+  ## Pre-pitch run expectancy by count (MLB-average values from Tango et al.,
+  ## "The Book"). Used for both non-terminal transitions and as the baseline
+  ## subtracted from terminal event values. Reused for MiLB as a reasonable
+  ## approximation since the heatmap only needs relative hot/cold signal.
+  re_count <- c(
+    "0-0" =  0.000, "0-1" = -0.038, "0-2" = -0.088,
+    "1-0" =  0.032, "1-1" = -0.015, "1-2" = -0.069,
+    "2-0" =  0.086, "2-1" =  0.040, "2-2" = -0.038,
+    "3-0" =  0.174, "3-1" =  0.116, "3-2" =  0.057
+  )
+  event_rv <- c(
+    single = 0.44, double = 0.74, triple = 1.01, home_run = 1.40,
+    walk = 0.33, hit_by_pitch = 0.35, strikeout = -0.27,
+    strikeout_double_play = -0.27
+  )
+  bip_out_rv <- -0.27   # fallback for any non-hit BIP event
+
+  re <- function(b, s) {
+    b <- pmin(pmax(b, 0L), 3L); s <- pmin(pmax(s, 0L), 2L)
+    unname(re_count[paste0(b, "-", s)])
+  }
+
+  add_run_value <- function(df) {
+    df %>%
+      mutate(
+        px = -1 * pitchData.coordinates.x,
+        py = -1 * pitchData.coordinates.y,
+        b0 = suppressWarnings(as.integer(count.balls.start)),
+        s0 = suppressWarnings(as.integer(count.strikes.start)),
+        re_before = re(b0, s0),
+        ## terminal BIP: use the linear-weight for the PA event
+        ev_lookup = ifelse(
+          outcome == "Ball in Play",
+          coalesce(unname(event_rv[as.character(result.eventType)]), bip_out_rv),
+          NA_real_
+        ),
+        run_value = case_when(
+          outcome == "Ball in Play"                      ~ ev_lookup                   - re_before,
+          outcome == "Ball"            & b0 == 3L        ~ unname(event_rv["walk"])    - re_before,
+          outcome == "Ball"                              ~ re(b0 + 1L, s0)             - re_before,
+          outcome %in% c("Swinging Strike", "Called Strike") & s0 == 2L ~ unname(event_rv["strikeout"]) - re_before,
+          outcome %in% c("Swinging Strike", "Called Strike")            ~ re(b0, s0 + 1L)              - re_before,
+          outcome == "Foul"            & s0 <  2L        ~ re(b0, s0 + 1L)             - re_before,
+          outcome == "Foul"            & s0 == 2L        ~ 0,   # count unchanged
+          TRUE                                           ~ NA_real_
+        )
+      ) %>%
+      filter(!is.na(px), !is.na(py), !is.na(run_value),
+             matchup.pitchHand.code %in% c("R", "L"))
+  }
+
+  batter_rv <- add_run_value(batter_data)
+  league_rv <- add_run_value(league_data)
+
+  ## Prediction grid (covers the shadow zone and a bit beyond) -------------
+  x_seq <- seq(-180, -20,  by = grid_step)
+  y_seq <- seq(-220, -80,  by = grid_step)
+  base_grid <- expand.grid(px = x_seq, py = y_seq)
+
+  fit_surface <- function(d) {
+    if (nrow(d) < min_facet_n) return(NULL)
+    tryCatch(
+      mgcv::gam(run_value ~ s(px, py, k = gam_k), data = d),
+      error = function(e) NULL
+    )
+  }
+
+  heatmap_rows <- purrr::map_dfr(c("R", "L"), function(hand) {
+    d_b <- batter_rv %>% filter(matchup.pitchHand.code == hand)
+    d_l <- league_rv %>% filter(matchup.pitchHand.code == hand)
+    if (nrow(d_b) < min_facet_n) return(tibble())
+
+    gam_b <- fit_surface(d_b)
+    gam_l <- fit_surface(d_l)
+    if (is.null(gam_b)) return(tibble())
+
+    grid <- base_grid
+    grid$pred_b <- as.numeric(predict(gam_b, newdata = grid))
+    grid$pred_l <- if (!is.null(gam_l)) as.numeric(predict(gam_l, newdata = grid)) else 0
+    ## In single-game mode the league pool is too small to be meaningful;
+    ## fall back to the raw batter surface.
+    grid$rv_delta <- if (mode == "game") grid$pred_b else grid$pred_b - grid$pred_l
+
+    ## Fade sparse zones: 2D density of the batter's own pitches, scaled so
+    ## well-sampled cells go fully opaque and thin cells fade to near-zero.
+    kd <- MASS::kde2d(
+      d_b$px, d_b$py,
+      n    = c(length(x_seq), length(y_seq)),
+      lims = c(min(x_seq), max(x_seq), min(y_seq), max(y_seq))
+    )
+    dens <- as.vector(kd$z)
+    cutoff <- stats::quantile(dens, 0.80, na.rm = TRUE)
+    grid$alpha_w <- pmin(1, dens / cutoff)
+
+    grid$matchup.pitchHand.code <- hand
+    grid
+  })
 
   pitch_plot <- ggplot() +
-    geom_tile(
-      data  = heatmap_data,
-      aes(x = x_bin, y = y_bin, fill = score),
-      width = bin_size, height = bin_size
+    geom_raster(
+      data = heatmap_rows,
+      aes(x = px, y = py, fill = rv_delta, alpha = alpha_w),
+      interpolate = TRUE
+    ) +
+    geom_contour(
+      data = heatmap_rows,
+      aes(x = px, y = py, z = rv_delta),
+      breaks    = c(-0.04, 0, 0.04),
+      colour    = "grey25",
+      linewidth = 0.3
     ) +
     scale_fill_gradient2(
       low      = "steelblue",
       mid      = "white",
       high     = "firebrick",
       midpoint = 0,
-      limits   = c(-1, 1),
-      name     = "Coverage",
-      breaks   = c(-1, 0, 1),
-      labels   = c("Weak\n(strikes/fouls)", "Neutral\n(balls)", "Strong\n(in play/takes)")
+      limits   = c(-rv_limit, rv_limit),
+      oob      = scales::squish,
+      name     = if (mode == "game") "Runs/pitch" else "Runs/pitch\nvs league",
+      breaks   = c(-rv_limit, 0, rv_limit),
+      labels   = c("Cold", "Avg", "Hot")
     ) +
+    scale_alpha_identity() +
     facet_grid(.~factor(matchup.pitchHand.code, levels = c("R", "L")),
                labeller = as_labeller(pitchhand_names)) +
-    coord_equal() +
+    coord_equal(xlim = c(-180, -20), ylim = c(-220, -80), expand = FALSE) +
     zone_overlay
 
 } else {
