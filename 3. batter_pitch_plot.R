@@ -22,7 +22,7 @@ level_id  <- c(12)      # 12 = AA; change for other levels
 grid_step   <- 2     # pixel step of the prediction grid
 gam_k       <- 30    # basis dimension for the 2D smooth
 rv_limit    <- 0.08  # |runs/pitch| at which the colour scale saturates
-min_facet_n <- 50    # skip a pitcher-hand facet with fewer pitches than this
+min_facet_n <- 25    # skip a pitcher-hand facet with fewer pitches than this
 
 ## Pull data ---------------------------------------------------------------
 ## league_data keeps every pitch in the fetched games (all batters) so we can
@@ -57,10 +57,12 @@ batter_data <- league_data %>% filter(matchup.batter.id == batter_id)
 ## Metadata ----------------------------------------------------------------
 batter_name    <- first(batter_data$matchup.batter.fullName)
 team_name      <- first(batter_data$batting_team)
+bat_sides      <- unique(na.omit(batter_data$matchup.batSide.code))
+bat_side_label <- if (length(bat_sides) > 1) "Switch" else if ("L" %in% bat_sides) "LHB" else "RHB"
 subtitle_label <- if (mode == "game") {
-  str_c(team_name, ", ", first(batter_data$game_date))
+  str_c(team_name, ", ", first(batter_data$game_date), " | ", bat_side_label)
 } else {
-  str_c(team_name, ", ", season, " Season")
+  str_c(team_name, ", ", season, " Season | ", bat_side_label)
 }
 
 ## Recode pitch outcomes ---------------------------------------------------
@@ -133,7 +135,14 @@ theme_pitch <- function() {
 }
 
 ## Plot --------------------------------------------------------------------
-pitchhand_names <- c(`R` = "RHP", `L` = "LHP")
+make_hand_labels <- function(df) {
+  n <- df %>% filter(matchup.pitchHand.code %in% c("R", "L")) %>%
+    count(matchup.pitchHand.code) %>% deframe()
+  c(
+    `R` = paste0("RHP (n=", if ("R" %in% names(n)) n["R"] else 0L, ")"),
+    `L` = paste0("LHP (n=", if ("L" %in% names(n)) n["L"] else 0L, ")")
+  )
+}
 zone_overlay <- list(
   geom_path(aes(x, y), data = kZone,    linewidth = 1),
   geom_path(aes(x, y), data = shzone,   linewidth = 1, linetype = "dashed"),
@@ -197,6 +206,7 @@ if (plot_type == "heatmap") {
 
   batter_rv <- add_run_value(batter_data)
   league_rv <- add_run_value(league_data)
+  pitchhand_names <- make_hand_labels(batter_rv)
 
   ## Prediction grid (covers the shadow zone and a bit beyond) -------------
   x_seq <- seq(-180, -20,  by = grid_step)
@@ -274,6 +284,7 @@ if (plot_type == "heatmap") {
 
 } else {
 
+  pitchhand_names <- make_hand_labels(batter_data)
   order <- c("Swinging Strike", "Called Strike", "Ball", "Foul", "Ball in Play")
 
   pitch_plot <- ggplot() +
